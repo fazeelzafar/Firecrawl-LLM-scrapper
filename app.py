@@ -6,114 +6,89 @@ import json
 import pandas as pd
 from datetime import datetime
 
+# Load environment variables once
+load_dotenv()
+
+# Initialize API clients once
+firecrawl_api_key = os.getenv('FIRECRAWL_API_KEY')
+openai_api_key = os.getenv('OPENAI_API_KEY')
+
+fcApp = FirecrawlApp(api_key=firecrawl_api_key)
+client = OpenAI(api_key=openai_api_key)
+
 def dataScrapper(url):
-    load_dotenv()
-
-    fcApp = FirecrawlApp(api_key=os.getenv('FIRECRAWL_API_KEY'))
-
     scrappedData = fcApp.scrape_url(url)
-    # if 'markdown' in scrappedData:
-    #     return scrappedData['markdown']
-    # else:
-    #     raise KeyError('Markdown non-existent in extracted data')
-    
-    return scrappedData['markdown'] if 'markdown' in scrappedData else print('Markdown non-existent in extracted data')
-    
+    if 'markdown' in scrappedData:
+        return scrappedData['markdown']
+    else:
+        raise KeyError('Markdown non-existent in extracted data')
+
 def saveRaw(rawData, timestamp, out_folder='Output'):
-
     os.makedirs(out_folder, exist_ok=True)
-
-    out_path = os.path.join(out_folder, f'extracted_markdown{timestamp}.md')
+    out_path = os.path.join(out_folder, f'extracted_markdown_{timestamp}.md')
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write(rawData)
     print(f'Saved to {out_path}')
 
-
 def formatData(data, fields=None):
-    load_dotenv()
-
-    client = OpenAI(api_key=os.getenv('OPEN_API_KEY'))
-
     if fields is None:
         fields = ["Address", "Real Estate Agency", "Price", "Beds", "Baths", "Sqft", "Home Type", "Listing Age", "Picture of home URL", "Listing URL"]
 
     system_message = f"""You are an intelligent text extraction and conversion assistant. Your task is to extract structured information 
-                        from the given text and convert it into a pure JSON format. The JSON should contain only the structured data extracted from the text, 
-                        with no additional commentary, explanations, or extraneous information. 
-                        You could encounter cases where you can't find the data of the fields you have to extract or the data will be in a foreign language.
-                        Please process the following text and provide the output in pure JSON format with no words before or after the JSON:"""
-    
+    from the given text and convert it into a pure JSON format. The JSON should contain only the structured data extracted from the text, 
+    with no additional commentary, explanations, or extraneous information."""
+
     user_message = f"Extract the following information from the provided text:\nPage content:\n\n{data}\n\nInformation to extract: {fields}"
 
     response = client.chat.completions.create(
         model='gpt-3.5-turbo-1106',
         response_format={"type": "json_object"},
         messages=[
-            {
-                "role": "system",
-                "content": system_message
-            },
-            {
-                "role": "user",
-                "content": user_message
-            }
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_message}
         ]
-
     )
 
     if response and response.choices:
         frData = response.choices[0].message.content.strip()
-        print(f"Received formatted data{frData} from OpenAI API")
-
         try:
             jsonParsed = json.loads(frData)
+            return jsonParsed
         except json.JSONDecodeError as e:
-            print(f"Decoding Error: {e}")
-            print(f"data that caused the error: {frData}")
-
-            raise ValueError("Data could not be decoded to JSON")
-        return jsonParsed
-    
+            raise ValueError(f"Data could not be decoded to JSON: {e}")
     else:
-        raise ValueError("Expected choices data not available OpenAI API response.")
-    
+        raise ValueError("Expected choices data not available in OpenAI API response.")
 
 def saveData(frData, timestamp, out_folder='Output'):
-    
     os.makedirs(out_folder, exist_ok=True)
-    out_path = os.path.join(out_folder, f'json_Sorted{timestamp}.json')
-
-    with open(out_path, 'w', encoding='utf-8') as f:
+    
+    # Save as JSON
+    json_path = os.path.join(out_folder, f'json_Sorted_{timestamp}.json')
+    with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(frData, f, indent=4)
-    print(f'Fomatted Data Saved to {out_path}')
-
-
+    print(f'Formatted Data Saved to {json_path}')
+    
+    # Save as Excel
     if isinstance(frData, dict) and len(frData) == 1:
         key = next(iter(frData))
         frData = frData[key]
-    df = pd.DataFrame(frData)
-
 
     if isinstance(frData, dict):
         frData = [frData]
+
     df = pd.DataFrame(frData)
-
-
-    excelPath = os.path.join(out_folder, f'excel_Sorted{timestamp}.json')
-    df.to_excel(excelPath, index=False)
-    print(f"Excel formatted data saved to {excelPath}")
-
+    excel_path = os.path.join(out_folder, f'excel_Sorted_{timestamp}.xlsx')
+    df.to_excel(excel_path, index=False)
+    print(f'Excel formatted data saved to {excel_path}')
 
 if __name__ == "__main__":
-
     url = 'https://www.zillow.com/salt-lake-city-ut/'
-    # url = 'https://www.trulia.com/CA/San_Francisco/'
     
     try:
-        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        scrape = dataScrapper(url)
-        rawSave = saveRaw(scrape, ts)
-        formattedData = formatData(rawSave)
-        saveFormattedData = saveData(formattedData, ts)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        scraped_data = dataScrapper(url)
+        saveRaw(scraped_data, timestamp)
+        formatted_data = formatData(scraped_data)
+        saveData(formatted_data, timestamp)
     except Exception as e:
-        print(f"Error occured: {e}")
+        print(f"Error occurred: {e}")
