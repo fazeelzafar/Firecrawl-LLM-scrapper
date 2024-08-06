@@ -9,9 +9,14 @@ from datetime import datetime
 # Load environment variables once
 load_dotenv()
 
-# Initialize API clients once
+# Initialize API clients once with proper checks
 firecrawl_api_key = os.getenv('FIRECRAWL_API_KEY')
 openai_api_key = os.getenv('OPENAI_API_KEY')
+
+if not firecrawl_api_key:
+    raise ValueError("Firecrawl API key is not set in the environment variables.")
+if not openai_api_key:
+    raise ValueError("OpenAI API key is not set in the environment variables.")
 
 fcApp = FirecrawlApp(api_key=firecrawl_api_key)
 client = OpenAI(api_key=openai_api_key)
